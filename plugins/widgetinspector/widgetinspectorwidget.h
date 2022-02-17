@@ -61,6 +61,8 @@ private slots:
     void onTabChanged(int index);
     void widgetSelected(const QItemSelection &selection);
     void widgetTreeContextMenu(QPoint pos);
+    void onSearchFinished(const QString &searchTerm);
+    void expandRecursively(const QModelIndex &);
 
     void saveAsImage();
     void saveAsSvg();
@@ -75,6 +77,8 @@ private:
     WidgetInspectorInterface *m_inspector;
     WidgetRemoteView *m_remoteView;
     Widget3DView *m_3dView;
+    QTimer *m_expandTimer = nullptr;
+    QVector<QPersistentModelIndex> m_idxesToExpand;
 };
 
 class WidgetInspectorUiFactory : public QObject, public StandardToolUiFactory<WidgetInspectorWidget>

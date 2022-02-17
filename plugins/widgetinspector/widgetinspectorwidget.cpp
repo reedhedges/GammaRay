@@ -61,6 +61,7 @@
 #include <QSettings>
 #include <QLayout>
 #include <QTabBar>
+#include <QTimer>
 
 using namespace GammaRay;
 
@@ -92,7 +93,8 @@ WidgetInspectorWidget::WidgetInspectorWidget(QWidget *parent)
     ui->widgetTreeView->setDeferredResizeMode(1, QHeaderView::Interactive);
     ui->widgetTreeView->setModel(widgetModel);
     ui->widgetTreeView->setSelectionModel(ObjectBroker::selectionModel(widgetModel));
-    new SearchLineController(ui->widgetSearchLine, widgetModel);
+    auto *searchController = new SearchLineController(ui->widgetSearchLine, widgetModel);
+    connect(searchController, &SearchLineController::searchFinished, this, &WidgetInspectorWidget::onSearchFinished);
     connect(ui->widgetTreeView->selectionModel(),
             &QItemSelectionModel::selectionChanged,
             this, &WidgetInspectorWidget::widgetSelected);
@@ -196,6 +198,90 @@ void WidgetInspectorWidget::onTabChanged(int index)
 #else
     Q_UNUSED(index)
 #endif
+}
+
+void WidgetInspectorWidget::onSearchFinished(const QString &searchTerm)
+{
+    static const QString s_emptyDisplayValue = tr("Loading...");
+    if (searchTerm.isEmpty()) {
+        // Make sure we keep the current item in view on clearing
+        auto current = ui->widgetTreeView->currentIndex();
+        if (current.isValid()) {
+            ui->widgetTreeView->scrollTo(current);
+        }
+        return;
+    }
+    m_idxesToExpand.clear();
+
+    if (!m_expandTimer) {
+        m_expandTimer = new QTimer(this);
+        m_expandTimer->setSingleShot(true);
+        m_expandTimer->setInterval(125);
+
+        connect(m_expandTimer, &QTimer::timeout, [this] {
+            QVector<QPersistentModelIndex> stillNotLoaded;
+            const auto copy = m_idxesToExpand;
+            m_idxesToExpand.clear();
+            auto it = copy.cbegin();
+            auto end = copy.cend();
+            for (; it != end; ++it) {
+                QModelIndex index = *it;
+                if (!index.isValid()) {
+                    continue;
+                }
+                if (ui->widgetTreeView->isExpanded(index)) {
+                    continue;
+                }
+                if (it->data().toString() != s_emptyDisplayValue) {
+                    expandRecursively(index);
+                    continue;
+                }
+                QPersistentModelIndex notLoaded = index;
+                stillNotLoaded.append(notLoaded);
+            }
+
+            m_idxesToExpand << stillNotLoaded;
+            if (!m_idxesToExpand.isEmpty()) {
+                m_expandTimer->start();
+            }
+        });
+    }
+
+    auto *model = ui->widgetTreeView->model();
+    const int rowCount = model->rowCount({});
+    // Walk the top level indexes and expand everything
+    for (int r = 0; r < rowCount; ++r) {
+        expandRecursively(model->index(r, 0));
+    }
+    // Start the timer to expand the not loaded indexes
+    m_expandTimer->start();
+}
+
+void WidgetInspectorWidget::expandRecursively(const QModelIndex &idx)
+{
+    if (!idx.isValid()) {
+        return;
+    }
+
+    static const QString s_emptyDisplayValue = tr("Loading...");
+
+    auto *model = ui->widgetTreeView->model();
+    ui->widgetTreeView->expand(idx);
+
+    const int rowCount = model->rowCount(idx);
+    for (int i = 0; i < rowCount; ++i) {
+        auto childIdx = model->index(i, 0, idx);
+        if (!childIdx.isValid()) {
+            continue;
+        }
+
+        // The value might not be there, store it for delayed expansion
+        if (childIdx.data().toString() == s_emptyDisplayValue) {
+            m_idxesToExpand << childIdx;
+        } else {
+            expandRecursively(childIdx);
+        }
+    }
 }
 
 void WidgetInspectorWidget::updateActions()

@@ -57,6 +57,9 @@ public:
 private slots:
     void activateSearch();
 
+Q_SIGNALS:
+    void searchFinished(const QString &searchTerm);
+
 private:
     QLineEdit *m_lineEdit;
     QPointer<QAbstractItemModel> m_filterModel;
